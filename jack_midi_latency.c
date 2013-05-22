@@ -338,12 +338,32 @@ int main (int argc, char ** argv) {
 
   /* all systems go */
 
+  int cnt_t, cnt_a;
+  int min_t, max_t, min_a, max_a;
+  double avg_t, avg_a;
+
+  cnt_t = 0; cnt_a = 0;
+  min_t = min_a = MODX;
+  max_t = max_a = 0;
+  avg_t = avg_a = 0;
+
+  time_t last = time(NULL);
+
   while (run && j_client) {
     int i;
     const int mqlen = jack_ringbuffer_read_space (rb) / sizeof(struct timenfo);
+    time_t now = time(NULL);
     for (i=0; i < mqlen; ++i) {
       struct timenfo nfo;
       jack_ringbuffer_read(rb, (char*) &nfo, sizeof(struct timenfo));
+      if (now > last) {
+	last = now;
+	printf("\nCURRENT: min=%d max=%d avg=%.1f [samples]\n", min_t, max_t, avg_t / (double)cnt_t);
+	cnt_t = 0;
+	min_t = MODX;
+	max_t = 0;
+	avg_t = 0;
+      }
 
       int latency = capture_latency.max + playback_latency.max;
       if (latency <= 0) latency = 2 * nfo.period; /* jack does not [yet] report MIDI port latency */
@@ -351,12 +371,22 @@ int main (int argc, char ** argv) {
       printf("roundtrip latency: %5lld frames = %6.2fms || non-jack: %5lld frames         \r",
 	  nfo.tdiff, nfo.tdiff * 1000.0 / samplerate,
 	  nfo.tdiff - latency);
-      // TODO calc avg, sigma|jitter
+
+      avg_t += nfo.tdiff;
+      avg_a += nfo.tdiff;
+      if (nfo.tdiff < min_t) min_t = nfo.tdiff;
+      if (nfo.tdiff > max_t) max_t = nfo.tdiff;
+      if (nfo.tdiff < min_a) min_a = nfo.tdiff;
+      if (nfo.tdiff > max_a) max_a = nfo.tdiff;
+      cnt_t++; cnt_a++;
+
+      // TODO running average, sigma|jitter calc
     }
     fflush(stdout);
     pthread_cond_wait (&data_ready, &msg_thread_lock);
   }
   pthread_mutex_unlock (&msg_thread_lock);
+  printf("\n TOTAL: min=%d max=%d avg=%.1f [samples]\n", min_a, max_a, avg_a / cnt_a);
 
 out:
   cleanup();
