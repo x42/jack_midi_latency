@@ -44,6 +44,25 @@
 #include <jack/midiport.h>
 
 #define RBSIZE 20
+#define HISTLEN 500
+#define TERMWIDTH 50
+
+#ifndef SQUARE
+#define SQUARE(a) ( (a) * (a) )
+#endif
+
+#ifndef MIN
+#define MIN(a,b) ( (a) < (b) ? (a) : (b) )
+#endif
+
+#ifndef MAX
+#define MAX(a,b) ( (a) > (b) ? (a) : (b) )
+#endif
+
+#ifndef RAIL
+#define RAIL(v, min, max) (MIN((max), MAX((min), (v))))
+#endif
+
 
 /* jack connection */
 jack_client_t *j_client = NULL;
@@ -263,7 +282,7 @@ static void usage (int status) {
 \n");
 /*                                  longest help text w/80 chars per line ---->|\n" */
   printf ("\n\
-Measure MIDI roundtrip latency\n\
+Measure MIDI roundtrip latency...\n\
 \n");
   printf ("Report bugs to Robin Gareus <robin@gareus.org>\n"
 	  "Website and manual: <https://github.com/x42/jack_midi_latency>\n"
@@ -338,14 +357,28 @@ int main (int argc, char ** argv) {
 
   /* all systems go */
 
+  if (!inport && !outport) {
+    printf("Close the signal-loop to measure JACK MIDI round-trip-latency:\n");
+    printf("    jack_midi_latency:out\n -> soundcard midi-port\n -> cable\n -> soundcard midi-port\n -> jack_midi_latency:in\n\n");
+  }
+  printf("Press Ctrl+C to end test.\n\n");
+
   int cnt_t, cnt_a;
   int min_t, max_t, min_a, max_a;
   double avg_t, avg_a;
+  double var_m, var_s;
+
+  unsigned int *history = calloc(HISTLEN, sizeof(unsigned int));
+  unsigned int histsize = 0;
+  double bin_width = 0;
+  double bin_min = 0;
+  unsigned int *histogram = NULL;
 
   cnt_t = 0; cnt_a = 0;
   min_t = min_a = MODX;
   max_t = max_a = 0;
   avg_t = avg_a = 0;
+  var_m = var_s = 0;
 
   time_t last = time(NULL);
 
@@ -366,7 +399,8 @@ int main (int argc, char ** argv) {
       }
 
       int latency = capture_latency.max + playback_latency.max;
-      if (latency <= 0) latency = 2 * nfo.period; /* jack does not [yet] report MIDI port latency */
+
+      if (latency <= 0) latency = 2 * nfo.period; /* XXX jack does not [yet] report MIDI port latency */
 
       printf("roundtrip latency: %5lld frames = %6.2fms || non-jack: %5lld frames         \r",
 	  nfo.tdiff, nfo.tdiff * 1000.0 / samplerate,
@@ -378,15 +412,98 @@ int main (int argc, char ** argv) {
       if (nfo.tdiff > max_t) max_t = nfo.tdiff;
       if (nfo.tdiff < min_a) min_a = nfo.tdiff;
       if (nfo.tdiff > max_a) max_a = nfo.tdiff;
-      cnt_t++; cnt_a++;
 
-      // TODO running average, sigma|jitter calc
+      /* running variance */
+      if (avg_a == 0) {
+	var_m = nfo.tdiff;
+      } else {
+	const double var_m1 = var_m;
+	var_m = var_m + ((double)nfo.tdiff - var_m) / (double)(cnt_a + 1);
+	var_s = var_s + ((double)nfo.tdiff - var_m) * ((double)nfo.tdiff - var_m1);
+      }
+
+      /* histogram */
+      if (cnt_a < HISTLEN) {
+	history[cnt_a] = nfo.tdiff;
+      } else if (cnt_a == HISTLEN) {
+	int j;
+	double stddev = 0;
+	const double avg = avg_a / (double)HISTLEN;
+	for (j = 0; j < HISTLEN; ++j) {
+	  stddev += SQUARE((double)history[j] - avg);
+	}
+	stddev = sqrt(stddev/(double)HISTLEN);
+	// Scott's normal reference rule
+	bin_width = 3.5 * stddev * pow(HISTLEN, -1.0/3.0);
+	int k = ceil((double)(max_a - min_a) / bin_width);
+	bin_min = min_a;
+
+	if (bin_min > bin_width) { k++; bin_min -= bin_width; }
+	histsize = k+1;
+
+	printf("\n -- initializing histogram with %d bins --\n", histsize);
+
+	histogram = calloc(histsize + 1,sizeof(unsigned int));
+	for (j = 0; j < HISTLEN; ++j) {
+	  int bin = RAIL(floor(((double)history[j] - bin_min) / bin_width), 0, histsize);
+	  histogram[bin]++;
+	}
+      } else {
+	int bin = RAIL(floor(((double)nfo.tdiff - bin_min) / bin_width), 0, histsize);
+	histogram[bin]++;
+      }
+
+      cnt_t++; cnt_a++;
     }
     fflush(stdout);
     pthread_cond_wait (&data_ready, &msg_thread_lock);
   }
   pthread_mutex_unlock (&msg_thread_lock);
-  printf("\n TOTAL: min=%d max=%d avg=%.1f [samples]\n", min_a, max_a, avg_a / cnt_a);
+  printf("\n");
+
+  if (cnt_a == 0) {
+    printf("No signal was detected.\n");
+  } else {
+    double stddev = cnt_a > 1 ? sqrt(var_s / ((double)(cnt_a-1))) : 0;
+    printf("TOTAL: %d events counted\n", cnt_a);
+    printf(" min=%6d max=%6d range=%6d avg=%6.1f dev=%6.2f [samples]\n",
+	min_a, max_a, max_a-min_a, avg_a / cnt_a, stddev);
+    printf(" min=%6.2f max=%6.2f range=%6.2f avg=%6.1f dev=%6.2f [ms]\n",
+	1000.0 * min_a / samplerate, 1000.0 * max_a / samplerate,
+	1000.0 * (max_a-min_a) / samplerate,
+	1000.0 * avg_a / cnt_a / samplerate, 1000.0 * stddev / samplerate
+	);
+  }
+
+  if (histsize > 0) {
+    printf("\n");
+    int i,j;
+    int binlevel = 0;
+    for (i = 0; i < histsize; ++i) {
+      if (histogram[i] > binlevel) binlevel = histogram[i];
+    }
+    for (i = 0; i <= histsize; ++i) {
+      double hmin, hmax;
+      if (i == 0) {
+	hmin = 0.0;
+	hmax = bin_min;
+      } else if (i == histsize) {
+	hmin = bin_min + (double)(i-1) * bin_width;
+	hmax = INFINITY;
+      } else {
+	hmin = bin_min + (double)(i-1) * bin_width;
+	hmax = bin_min + (double)(i) * bin_width;
+      }
+      printf("%5.2f .. %5.2f [ms]:%7d ", 1000.0 * hmin / samplerate, 1000.0 * hmax / samplerate, histogram[i]);
+      int bar_width = (histogram[i] * TERMWIDTH ) / binlevel;
+      if (bar_width == 0 && histogram[i] > 0) bar_width = 1;
+      for (j = 0; j < bar_width; ++j) printf("#");
+      printf("\n");
+    }
+  }
+
+  free(histogram);
+  free(history);
 
 out:
   cleanup();
