@@ -1,2 +1,6 @@
+2013-06-08 (0.1.0)  Robin Gareus <robin@gareus.org>
+* calculate variance and sigma
+* add histogram
+
 2013-05-22 (0.0.1)  Robin Gareus <robin@gareus.org>
 * initial version - simple latency measurement
