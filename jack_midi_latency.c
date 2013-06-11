@@ -436,12 +436,14 @@ int main (int argc, char ** argv) {
 	// Scott's normal reference rule
 	bin_width = 3.5 * stddev * pow(HISTLEN, -1.0/3.0);
 	int k = ceil((double)(max_a - min_a) / bin_width);
+
 	bin_min = min_a;
-
 	if (bin_min > bin_width) { k++; bin_min -= bin_width; }
-	histsize = k+1;
+	if (bin_min > bin_width) { k++; bin_min -= bin_width; }
+	if (bin_min > bin_width) { k++; bin_min -= bin_width; }
+	histsize = k+2;
 
-	printf("\n -- initializing histogram with %d bins --\n", histsize);
+	printf("\n -- initializing histogram with %d bins (min:%f w:%f) --\n", histsize, bin_min, bin_width);
 
 	histogram = calloc(histsize + 1,sizeof(unsigned int));
 	for (j = 0; j < HISTLEN; ++j) {
@@ -482,7 +484,7 @@ int main (int argc, char ** argv) {
     for (i = 0; i < histsize; ++i) {
       if (histogram[i] > binlevel) binlevel = histogram[i];
     }
-    for (i = 0; i <= histsize; ++i) {
+    if (binlevel > 0) for (i = 0; i <= histsize; ++i) {
       double hmin, hmax;
       if (i == 0) {
 	hmin = 0.0;
