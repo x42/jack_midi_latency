@@ -86,6 +86,7 @@ static int run = 1;
 /* options */
 static char *inport = NULL;
 static char *outport = NULL;
+static int nperiod = 2; // jackd --nperiod
 static int max_events = 10000; // events to receive
 
 struct timenfo {
@@ -393,6 +394,8 @@ int main (int argc, char ** argv) {
   var_m = var_s = 0;
 
   time_t last = time(NULL);
+  int jack_period = 0;
+  int latency = 0;
 
   while (run && j_client) {
     int i;
@@ -410,9 +413,9 @@ int main (int argc, char ** argv) {
 	avg_t = 0;
       }
 
-      int latency = capture_latency.max + playback_latency.max;
-
-      if (latency <= 0) latency = 2 * nfo.period; /* XXX jack does not [yet] report MIDI port latency */
+      jack_period = nfo.period;
+      latency = capture_latency.max + playback_latency.max;
+      if (latency <= 0) latency = nperiod * nfo.period; /* XXX jack does not [yet] report MIDI port latency */
 
       printf("roundtrip latency: %5lld frames = %6.2fms || non-jack: %5lld frames         \r",
 	  nfo.tdiff, nfo.tdiff * 1000.0 / samplerate,
@@ -474,13 +477,15 @@ int main (int argc, char ** argv) {
     pthread_cond_wait (&data_ready, &msg_thread_lock);
   }
   pthread_mutex_unlock (&msg_thread_lock);
-  printf("\n");
+  printf("\n\n");
 
   if (cnt_a == 0) {
     printf("No signal was detected.\n");
   } else {
+    printf("JACK settings: samplerate: %d, samples/period: %d\n", (int) samplerate, jack_period);
+    printf("               probable nominal jack latency: %d [samples] = %.2f [ms]\n", latency, 1000.0 * latency / samplerate);
     double stddev = cnt_a > 1 ? sqrt(var_s / ((double)(cnt_a-1))) : 0;
-    printf("TOTAL: %d events counted\n", cnt_a);
+    printf("TOTAL: %d MIDI events sent+received.\n", cnt_a);
     printf(" min=%6d max=%6d range=%6d avg=%6.1f dev=%6.2f [samples]\n",
 	min_a, max_a, max_a-min_a, avg_a / cnt_a, stddev);
     printf(" min=%6.2f max=%6.2f range=%6.2f avg=%6.1f dev=%6.2f [ms]\n",
