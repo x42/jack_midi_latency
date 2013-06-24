@@ -88,6 +88,7 @@ static char *inport = NULL;
 static char *outport = NULL;
 static int nperiod = 2; // jackd --nperiod
 static int max_events = 10000; // events to receive
+static int printinterval = 1; // seconds
 
 struct timenfo {
   long long tdiff;
@@ -268,6 +269,7 @@ static struct option const long_options[] =
   {"events", required_argument, 0, 'e'},
   {"input", required_argument, 0, 'i'},
   {"output", required_argument, 0, 'o'},
+  {"print", required_argument, 0, 'p'},
   {"version", no_argument, 0, 'V'},
   {NULL, 0, NULL, 0}
 };
@@ -283,6 +285,8 @@ static void usage (int status) {
                         auto-connect to given jack-midi capture port\n\
   -o <port-name>, --output <port-name>\n\
                         auto-connect to given jack-midi playback port\n\
+  -p, --print <num>     print min/max/avg statistics every N seconds,\n\
+                        (default : 1 sec), 0 disable.\n\
   -V, --version         print version information and exit\n\
 \n");
 /*                                  longest help text w/80 chars per line ---->|\n" */
@@ -303,6 +307,7 @@ static int decode_switches (int argc, char **argv) {
 	 "e:" /* events */
 	 "i:" /* input */
 	 "o:" /* output */
+	 "p:" /* printinterval */
 	 "V", /* version */
 	 long_options, (int *) 0)) != EOF) {
     switch (c) {
@@ -314,6 +319,9 @@ static int decode_switches (int argc, char **argv) {
 	break;
       case 'o':
 	outport = optarg;
+	break;
+      case 'p':
+	printinterval = atoi(optarg);
 	break;
       case 'V':
 	printf ("jack_midi_latency version %s\n\n", VERSION);
@@ -404,9 +412,9 @@ int main (int argc, char ** argv) {
     for (i=0; i < mqlen; ++i) {
       struct timenfo nfo;
       jack_ringbuffer_read(rb, (char*) &nfo, sizeof(struct timenfo));
-      if (now > last) {
+      if (printinterval > 0 && now >= last + printinterval) {
 	last = now;
-	printf("\nCURRENT: min=%d max=%d avg=%.1f [samples]\n", min_t, max_t, avg_t / (double)cnt_t);
+	printf("\ncurrent: min=%d max=%d avg=%.1f [samples]   --   total events: %d\n", min_t, max_t, avg_t / (double)cnt_t, cnt_a);
 	cnt_t = 0;
 	min_t = MODX;
 	max_t = 0;
@@ -458,7 +466,9 @@ int main (int argc, char ** argv) {
 	if (bin_min > bin_width) { k++; bin_min -= bin_width; }
 	histsize = k+2;
 
-	printf("\n -- initializing histogram with %d bins (min:%f w:%f) --\n", histsize, bin_min, bin_width);
+	if (printinterval > 0) {
+	  printf("\n -- initializing histogram with %d bins (min:%.2f w:%.2f [samples]) --\n", histsize, bin_min, bin_width);
+	}
 
 	histogram = calloc(histsize + 1,sizeof(unsigned int));
 	for (j = 0; j < HISTLEN; ++j) {
