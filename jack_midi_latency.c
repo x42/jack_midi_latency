@@ -86,6 +86,7 @@ static int run = 1;
 /* options */
 static char *inport = NULL;
 static char *outport = NULL;
+static int max_events = 10000; // events to receive
 
 struct timenfo {
   long long tdiff;
@@ -263,6 +264,7 @@ static void wearedone(int sig) {
 static struct option const long_options[] =
 {
   {"help", no_argument, 0, 'h'},
+  {"events", required_argument, 0, 'e'},
   {"input", required_argument, 0, 'i'},
   {"output", required_argument, 0, 'o'},
   {"version", no_argument, 0, 'V'},
@@ -273,12 +275,14 @@ static void usage (int status) {
   printf ("jack_midi_latency - JACK MIDI Latency Measurement Tool.\n\n");
   printf ("Usage: jack_midi_latency [ OPTIONS ]\n\n");
   printf ("Options:\n\
-  -h, --help                 display this help and exit\n\
+  -h, --help            display this help and exit\n\
+  -e, --events <num>    number of midi-events to send/receive (default: 10000),\n\
+                        if <= 0 no limit, run until signalled.\n\
   -i <port-name>, --input <port-name>\n\
-                             autoconnect to given jack-midi capture port\n\
+                        auto-connect to given jack-midi capture port\n\
   -o <port-name>, --output <port-name>\n\
-                             autoconnect to given jack-midi playback port\n\
-  -V, --version              print version information and exit\n\
+                        auto-connect to given jack-midi playback port\n\
+  -V, --version         print version information and exit\n\
 \n");
 /*                                  longest help text w/80 chars per line ---->|\n" */
   printf ("\n\
@@ -295,11 +299,15 @@ static int decode_switches (int argc, char **argv) {
 
   while ((c = getopt_long (argc, argv,
 	 "h"  /* help */
+	 "e:" /* events */
 	 "i:" /* input */
 	 "o:" /* output */
 	 "V", /* version */
 	 long_options, (int *) 0)) != EOF) {
     switch (c) {
+      case 'e':
+	max_events = atoi(optarg);
+	break;
       case 'i':
 	inport = optarg;
 	break;
@@ -361,7 +369,11 @@ int main (int argc, char ** argv) {
     printf("Close the signal-loop to measure JACK MIDI round-trip-latency:\n");
     printf("    jack_midi_latency:out\n -> soundcard midi-port\n -> cable\n -> soundcard midi-port\n -> jack_midi_latency:in\n\n");
   }
-  printf("Press Ctrl+C to end test.\n\n");
+  if (max_events > 0 ) {
+    printf("Collecting data from %d midi-events; press Ctrl+C to end test early.\n\n", max_events);
+  } else {
+    printf("Press Ctrl+C to end test.\n\n");
+  }
 
   int cnt_t, cnt_a;
   int min_t, max_t, min_a, max_a;
@@ -458,6 +470,7 @@ int main (int argc, char ** argv) {
       cnt_t++; cnt_a++;
     }
     fflush(stdout);
+    if (max_events > 0 && cnt_a >= max_events) break;
     pthread_cond_wait (&data_ready, &msg_thread_lock);
   }
   pthread_mutex_unlock (&msg_thread_lock);
