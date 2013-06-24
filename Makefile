@@ -2,8 +2,8 @@ PREFIX ?= /usr/local
 bindir ?= $(PREFIX)/bin
 mandir ?= $(PREFIX)/share/man
 
-CFLAGS ?= -Wall -O3
-VERSION?=$(shell (git describe --tags HEAD 2>/dev/null || echo "v0.1.0") | sed 's/^v//')
+CFLAGS ?= -Wall -O3 -g
+VERSION?=$(shell (git describe --tags HEAD 2>/dev/null || echo "v0.2.0") | sed 's/^v//')
 
 ###############################################################################
 

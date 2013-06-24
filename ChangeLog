@@ -1,3 +1,8 @@
+2013-06-24 (0.2.0)  Robin Gareus <robin@gareus.org>
+* add option to set print interval
+* print jack-settings/nominal latency
+* allow to set the number of events to receive
+
 2013-06-08 (0.1.0)  Robin Gareus <robin@gareus.org>
 * calculate variance and sigma
 * add histogram
