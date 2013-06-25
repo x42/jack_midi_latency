@@ -239,16 +239,20 @@ static int jack_portsetup(void) {
   return (0);
 }
 
-static void inport_connect(char *port) {
+static int inport_connect(char *port) {
   if (port && jack_connect(j_client, port, jack_port_name(m_input_port))) {
     fprintf(stderr, "cannot connect port %s to %s\n", port, jack_port_name(m_input_port));
+    return 1;
   }
+  return 0;
 }
 
-static void outport_connect(char *port) {
+static int outport_connect(char *port) {
   if (port && jack_connect(j_client, jack_port_name(m_output_port), port)) {
     fprintf(stderr, "cannot connect port %s to %s\n", jack_port_name(m_output_port), port);
+    return 1;
   }
+  return 0;
 }
 
 
@@ -362,8 +366,8 @@ int main (int argc, char ** argv) {
     goto out;
   }
 
-  inport_connect(inport);
-  outport_connect(outport);
+  if (inport_connect(inport)) goto out;
+  if (outport_connect(outport)) goto out;
 
 #ifndef _WIN32
   signal(SIGHUP, wearedone);
@@ -374,7 +378,7 @@ int main (int argc, char ** argv) {
 
   /* all systems go */
 
-  if (!inport && !outport) {
+  if (!inport || !outport) {
     printf("Close the signal-loop to measure JACK MIDI round-trip-latency:\n");
     printf("    jack_midi_latency:out\n -> soundcard midi-port\n -> cable\n -> soundcard midi-port\n -> jack_midi_latency:in\n\n");
   }
