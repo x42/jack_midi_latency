@@ -81,6 +81,7 @@ static pthread_cond_t data_ready = PTHREAD_COND_INITIALIZER;
 /* application state */
 static double samplerate = 48000.0;
 static volatile unsigned long long monotonic_cnt = 0;
+static volatile unsigned long long last_signal_tme = 0;
 static int run = 1;
 
 /* options */
@@ -105,6 +106,8 @@ static void process_jmidi_event(jack_midi_event_t *ev, unsigned long long mfcnt,
 
   nfo.tdiff = (MODX + tc - ti) % MODX;
   nfo.period = jbs;
+
+  last_signal_tme = mfcnt;
 
   if (jack_ringbuffer_write_space(rb) >= sizeof(struct timenfo)) {
     jack_ringbuffer_write(rb, (void *) &nfo, sizeof(struct timenfo));
@@ -144,6 +147,16 @@ static int process(jack_nframes_t nframes, void *arg) {
     jack_midi_event_get(&ev, in_buf, n);
     process_jmidi_event(&ev, monotonic_cnt, nframes);
   }
+
+  // no-signal notification
+  if (printinterval > 0 && monotonic_cnt - last_signal_tme > samplerate * printinterval) {
+    last_signal_tme = monotonic_cnt;
+    if (pthread_mutex_trylock (&msg_thread_lock) == 0) {
+      pthread_cond_signal (&data_ready);
+      pthread_mutex_unlock (&msg_thread_lock);
+    }
+  }
+
   monotonic_cnt += nframes;
   return 0;
 }
@@ -408,17 +421,23 @@ int main (int argc, char ** argv) {
   time_t last = time(NULL);
   int jack_period = 0;
   int latency = 0;
+  const char spinner[] = "....";
 
   while (run && j_client) {
     int i;
     const int mqlen = jack_ringbuffer_read_space (rb) / sizeof(struct timenfo);
     time_t now = time(NULL);
+    if (mqlen == 0 && run)  {
+      printf("No signal%-50s                  \r", &(spinner[now%3]));
+    }
     for (i=0; i < mqlen; ++i) {
       struct timenfo nfo;
       jack_ringbuffer_read(rb, (char*) &nfo, sizeof(struct timenfo));
       if (printinterval > 0 && now >= last + printinterval) {
 	last = now;
-	printf("\ncurrent: min=%d max=%d avg=%.1f [samples]   --   total events: %d\n", min_t, max_t, avg_t / (double)cnt_t, cnt_a);
+	if (cnt_t > 0)
+	  printf("\ncurrent: min=%d max=%d avg=%.1f [samples]   --   total events: %d\n", min_t, max_t, avg_t / (double)cnt_t, cnt_a);
+
 	cnt_t = 0;
 	min_t = MODX;
 	max_t = 0;
