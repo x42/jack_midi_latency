@@ -486,7 +486,6 @@ int main (int argc, char ** argv) {
 	bin_min = min_a;
 	if (bin_min > bin_width) { k++; bin_min -= bin_width; }
 	if (bin_min > bin_width) { k++; bin_min -= bin_width; }
-	if (bin_min > bin_width) { k++; bin_min -= bin_width; }
 	histsize = k+2;
 
 	if (printinterval > 0) {
